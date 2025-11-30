@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { StartScreen } from "./game/StartScreen";
 import { LevelScreen } from "./game/LevelScreen";
-import { GameCanvas } from "./game/GameCanvas";
 import { GameHUD } from "./game/GameHUD";
 import { EndScreen } from "./game/EndScreen";
 import { GameState, Position, Direction } from "./game/types";
@@ -30,6 +29,9 @@ export const SnakeGame = () => {
   const foodRef = useRef<Position>({ x: 0, y: 0 });
   const dirRef = useRef<Direction>("RIGHT");
   const aiDirRef = useRef<Direction>("RIGHT");
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const lastTimeRef = useRef<number>(0);
+  const gameLoopRef = useRef<number>(0);
 
   const handleStartGame = (selectedSpeed: number) => {
     setSpeed(selectedSpeed);
@@ -78,126 +80,224 @@ export const SnakeGame = () => {
     setGameState("end");
   };
 
-  useEffect(() => {
-    if (gameState !== "playing" || isPaused) return;
+  const drawGame = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
 
-    const interval = setInterval(() => {
-      // Update player snake
-      const head = snakeRef.current[0];
-      let newHead = { ...head };
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
 
-      switch (dirRef.current) {
-        case "LEFT":
-          newHead.x -= BOX_SIZE;
-          break;
-        case "RIGHT":
-          newHead.x += BOX_SIZE;
-          break;
-        case "UP":
-          newHead.y -= BOX_SIZE;
-          break;
-        case "DOWN":
-          newHead.y += BOX_SIZE;
-          break;
-      }
+    const width = window.innerWidth;
+    const height = window.innerHeight;
 
-      // Check player collision with walls
-      if (
-        newHead.x < 0 ||
-        newHead.x >= window.innerWidth ||
-        newHead.y < 0 ||
-        newHead.y >= window.innerHeight
-      ) {
-        endGame("💀 GAME OVER - AI WINS!");
-        return;
-      }
+    // Clear canvas
+    ctx.fillStyle = "#0a0a0f";
+    ctx.fillRect(0, 0, width, height);
 
-      // Check player self collision
-      if (snakeRef.current.some((seg) => seg.x === newHead.x && seg.y === newHead.y)) {
-        endGame("💀 COLLISION - AI WINS!");
-        return;
-      }
+    // Draw subtle grid
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.03)";
+    ctx.lineWidth = 1;
+    for (let x = 0; x < width; x += BOX_SIZE) {
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, height);
+      ctx.stroke();
+    }
+    for (let y = 0; y < height; y += BOX_SIZE) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(width, y);
+      ctx.stroke();
+    }
 
-      const newSnake = [newHead, ...snakeRef.current];
+    // Draw food
+    ctx.shadowBlur = 20;
+    ctx.shadowColor = "#ff006e";
+    ctx.fillStyle = "#ff006e";
+    ctx.fillRect(foodRef.current.x + 2, foodRef.current.y + 2, BOX_SIZE - 4, BOX_SIZE - 4);
+    ctx.shadowBlur = 0;
+
+    // Draw player snake
+    snakeRef.current.forEach((segment, index) => {
+      const isHead = index === 0;
+      const alpha = 1 - (index / snakeRef.current.length) * 0.5;
       
-      // Check if player ate food
-      if (newHead.x === foodRef.current.x && newHead.y === foodRef.current.y) {
-        setScore((prev) => {
-          const newScore = prev + 1;
-          if (newScore >= WIN_SCORE) {
-            endGame("🎉 YOU WIN!");
-          }
-          return newScore;
-        });
-        spawnFood();
+      if (isHead) {
+        ctx.shadowBlur = 20;
+        ctx.shadowColor = "#00ff41";
+        ctx.fillStyle = "#00ff41";
+        ctx.fillRect(segment.x + 2, segment.y + 2, BOX_SIZE - 4, BOX_SIZE - 4);
+        ctx.shadowBlur = 0;
       } else {
-        newSnake.pop();
+        ctx.shadowBlur = 10;
+        ctx.shadowColor = "#00ff41";
+        ctx.fillStyle = `rgba(0, 255, 65, ${alpha})`;
+        ctx.fillRect(segment.x + 3, segment.y + 3, BOX_SIZE - 6, BOX_SIZE - 6);
+        ctx.shadowBlur = 0;
       }
-      snakeRef.current = newSnake;
+    });
 
-      // Update AI snake with smarter pathfinding
-      const aiHead = aiSnakeRef.current[0];
-      const food = foodRef.current;
-
-      // Calculate best direction using simple pathfinding
-      const dx = food.x - aiHead.x;
-      const dy = food.y - aiHead.y;
-
-      let newAiDir = aiDirRef.current;
-      if (Math.abs(dx) > Math.abs(dy)) {
-        newAiDir = dx > 0 ? "RIGHT" : "LEFT";
+    // Draw AI snake
+    aiSnakeRef.current.forEach((segment, index) => {
+      const isHead = index === 0;
+      const alpha = 1 - (index / aiSnakeRef.current.length) * 0.5;
+      
+      if (isHead) {
+        ctx.shadowBlur = 20;
+        ctx.shadowColor = "#00f0ff";
+        ctx.fillStyle = "#00f0ff";
+        ctx.fillRect(segment.x + 2, segment.y + 2, BOX_SIZE - 4, BOX_SIZE - 4);
+        ctx.shadowBlur = 0;
       } else {
-        newAiDir = dy > 0 ? "DOWN" : "UP";
+        ctx.shadowBlur = 10;
+        ctx.shadowColor = "#00f0ff";
+        ctx.fillStyle = `rgba(0, 240, 255, ${alpha})`;
+        ctx.fillRect(segment.x + 3, segment.y + 3, BOX_SIZE - 6, BOX_SIZE - 6);
+        ctx.shadowBlur = 0;
+      }
+    });
+  };
+
+  useEffect(() => {
+    if (gameState !== "playing" || isPaused) {
+      if (gameLoopRef.current) {
+        cancelAnimationFrame(gameLoopRef.current);
+      }
+      return;
+    }
+
+    const gameLoop = (currentTime: number) => {
+      const deltaTime = currentTime - lastTimeRef.current;
+
+      if (deltaTime >= speed) {
+        lastTimeRef.current = currentTime;
+
+        // Update player snake
+        const head = snakeRef.current[0];
+        let newHead = { ...head };
+
+        switch (dirRef.current) {
+          case "LEFT":
+            newHead.x -= BOX_SIZE;
+            break;
+          case "RIGHT":
+            newHead.x += BOX_SIZE;
+            break;
+          case "UP":
+            newHead.y -= BOX_SIZE;
+            break;
+          case "DOWN":
+            newHead.y += BOX_SIZE;
+            break;
+        }
+
+        // Check player collision with walls
+        if (
+          newHead.x < 0 ||
+          newHead.x >= window.innerWidth ||
+          newHead.y < 0 ||
+          newHead.y >= window.innerHeight
+        ) {
+          endGame("💀 GAME OVER - AI WINS!");
+          return;
+        }
+
+        // Check player self collision
+        if (snakeRef.current.some((seg) => seg.x === newHead.x && seg.y === newHead.y)) {
+          endGame("💀 COLLISION - AI WINS!");
+          return;
+        }
+
+        const newSnake = [newHead, ...snakeRef.current];
+        
+        // Check if player ate food
+        if (newHead.x === foodRef.current.x && newHead.y === foodRef.current.y) {
+          setScore((prev) => {
+            const newScore = prev + 1;
+            if (newScore >= WIN_SCORE) {
+              endGame("🎉 YOU WIN!");
+            }
+            return newScore;
+          });
+          spawnFood();
+        } else {
+          newSnake.pop();
+        }
+        snakeRef.current = newSnake;
+
+        // Update AI snake
+        const aiHead = aiSnakeRef.current[0];
+        const food = foodRef.current;
+
+        const dx = food.x - aiHead.x;
+        const dy = food.y - aiHead.y;
+
+        let newAiDir = aiDirRef.current;
+        if (Math.abs(dx) > Math.abs(dy)) {
+          newAiDir = dx > 0 ? "RIGHT" : "LEFT";
+        } else {
+          newAiDir = dy > 0 ? "DOWN" : "UP";
+        }
+
+        const opposites: Record<Direction, Direction> = {
+          LEFT: "RIGHT",
+          RIGHT: "LEFT",
+          UP: "DOWN",
+          DOWN: "UP",
+        };
+        if (newAiDir === opposites[aiDirRef.current]) {
+          newAiDir = aiDirRef.current;
+        }
+
+        aiDirRef.current = newAiDir;
+
+        let newAiHead = { ...aiHead };
+        switch (aiDirRef.current) {
+          case "LEFT":
+            newAiHead.x -= BOX_SIZE;
+            break;
+          case "RIGHT":
+            newAiHead.x += BOX_SIZE;
+            break;
+          case "UP":
+            newAiHead.y -= BOX_SIZE;
+            break;
+          case "DOWN":
+            newAiHead.y += BOX_SIZE;
+            break;
+        }
+
+        const newAiSnake = [newAiHead, ...aiSnakeRef.current];
+
+        // Check if AI ate food
+        if (newAiHead.x === foodRef.current.x && newAiHead.y === foodRef.current.y) {
+          setAiScore((prev) => {
+            const newScore = prev + 1;
+            if (newScore >= WIN_SCORE) {
+              endGame("🤖 AI WINS!");
+            }
+            return newScore;
+          });
+          spawnFood();
+        } else {
+          newAiSnake.pop();
+        }
+        aiSnakeRef.current = newAiSnake;
+
+        drawGame();
       }
 
-      // Avoid going backwards
-      const opposites: Record<Direction, Direction> = {
-        LEFT: "RIGHT",
-        RIGHT: "LEFT",
-        UP: "DOWN",
-        DOWN: "UP",
-      };
-      if (newAiDir === opposites[aiDirRef.current]) {
-        newAiDir = aiDirRef.current;
+      gameLoopRef.current = requestAnimationFrame(gameLoop);
+    };
+
+    lastTimeRef.current = performance.now();
+    gameLoopRef.current = requestAnimationFrame(gameLoop);
+
+    return () => {
+      if (gameLoopRef.current) {
+        cancelAnimationFrame(gameLoopRef.current);
       }
-
-      aiDirRef.current = newAiDir;
-
-      let newAiHead = { ...aiHead };
-      switch (aiDirRef.current) {
-        case "LEFT":
-          newAiHead.x -= BOX_SIZE;
-          break;
-        case "RIGHT":
-          newAiHead.x += BOX_SIZE;
-          break;
-        case "UP":
-          newAiHead.y -= BOX_SIZE;
-          break;
-        case "DOWN":
-          newAiHead.y += BOX_SIZE;
-          break;
-      }
-
-      const newAiSnake = [newAiHead, ...aiSnakeRef.current];
-
-      // Check if AI ate food
-      if (newAiHead.x === foodRef.current.x && newAiHead.y === foodRef.current.y) {
-        setAiScore((prev) => {
-          const newScore = prev + 1;
-          if (newScore >= WIN_SCORE) {
-            endGame("🤖 AI WINS!");
-          }
-          return newScore;
-        });
-        spawnFood();
-      } else {
-        newAiSnake.pop();
-      }
-      aiSnakeRef.current = newAiSnake;
-    }, speed);
-
-    return () => clearInterval(interval);
+    };
   }, [gameState, speed, isPaused]);
 
   useEffect(() => {
@@ -259,11 +359,11 @@ export const SnakeGame = () => {
             isPaused={isPaused}
             onTogglePause={handleTogglePause}
           />
-          <GameCanvas
-            snake={snakeRef.current}
-            aiSnake={aiSnakeRef.current}
-            food={foodRef.current}
-            boxSize={BOX_SIZE}
+          <canvas
+            ref={canvasRef}
+            className="absolute inset-0 w-full h-full"
+            width={window.innerWidth}
+            height={window.innerHeight}
           />
         </>
       )}
