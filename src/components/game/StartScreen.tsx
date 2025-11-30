@@ -1,10 +1,14 @@
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
 interface StartScreenProps {
-  onStart: () => void;
+  onStart: (username: string) => void;
 }
 
 export const StartScreen = ({ onStart }: StartScreenProps) => {
+  const [username, setUsername] = useState("");
+
   return (
     <div className="absolute inset-0 flex flex-col items-center justify-center bg-background z-50 animate-fade-in">
       <div className="text-center space-y-8 px-4">
@@ -26,33 +30,44 @@ export const StartScreen = ({ onStart }: StartScreenProps) => {
           Race against an intelligent AI opponent. First to 10 points wins!
         </p>
 
-        <div className="flex flex-col gap-4 items-center">
+        <div className="space-y-6 w-full max-w-md mx-auto">
+          <Input
+            type="text"
+            placeholder="Enter your username"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            className="text-xl py-6 px-4 text-center bg-background/50 border-primary focus:border-primary text-foreground"
+            maxLength={20}
+          />
+          
           <Button
-            onClick={onStart}
+            onClick={() => username.trim() && onStart(username.trim())}
+            disabled={!username.trim()}
             size="lg"
-            className="text-2xl px-12 py-8 bg-primary hover:bg-primary/90 text-primary-foreground shadow-neon-green hover:shadow-neon-green hover:scale-105 transition-all duration-300 font-bold"
+            className="w-full text-2xl px-12 py-8 font-bold transition-all duration-300 hover:scale-105 bg-primary hover:bg-primary/90 text-primary-foreground shadow-neon-green disabled:opacity-50 disabled:cursor-not-allowed"
           >
             START GAME
           </Button>
+        </div>
 
-          <div className="flex gap-4 text-sm text-muted-foreground">
-            <div className="flex items-center gap-2">
-              <div className="w-4 h-4 bg-primary shadow-neon-green rounded"></div>
-              <span>You</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-4 h-4 bg-secondary shadow-neon-cyan rounded"></div>
-              <span>AI</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-4 h-4 bg-accent shadow-neon-pink rounded"></div>
-              <span>Food</span>
-            </div>
+        <div className="flex gap-4 text-sm text-muted-foreground justify-center">
+          <div className="flex items-center gap-2">
+            <div className="w-4 h-4 bg-primary shadow-neon-green rounded"></div>
+            <span>You</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-4 h-4 bg-secondary shadow-neon-cyan rounded"></div>
+            <span>AI</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-4 h-4 bg-accent shadow-neon-pink rounded"></div>
+            <span>Food</span>
           </div>
         </div>
 
         <div className="text-xs text-muted-foreground space-y-1">
           <p>Use arrow keys to control your snake</p>
+          <p>Double tap for DASH ability</p>
           <p>Press SPACE to pause</p>
         </div>
       </div>

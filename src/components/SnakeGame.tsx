@@ -3,10 +3,15 @@ import { StartScreen } from "./game/StartScreen";
 import { LevelScreen } from "./game/LevelScreen";
 import { GameHUD } from "./game/GameHUD";
 import { EndScreen } from "./game/EndScreen";
-import { GameState, Position, Direction } from "./game/types";
+import { GameState, Position, Direction, PowerUp, PowerUpType } from "./game/types";
+import { supabase } from "@/integrations/supabase/client";
 
 const BOX_SIZE = 20;
 const WIN_SCORE = 10;
+const DASH_SPEED = 3;
+const DASH_COOLDOWN = 1000;
+const POWERUP_SPAWN_INTERVAL = 8000;
+const POWERUP_DURATION = 5000;
 
 export const SnakeGame = () => {
   const [gameState, setGameState] = useState<GameState>("start");
@@ -15,6 +20,9 @@ export const SnakeGame = () => {
   const [speed, setSpeed] = useState(150);
   const [isPaused, setIsPaused] = useState(false);
   const [endMessage, setEndMessage] = useState("");
+  const [username, setUsername] = useState("");
+  const [userRank, setUserRank] = useState<number | null>(null);
+  const [topScores, setTopScores] = useState<Array<{ username: string; score: number }>>([]);
 
   const snakeRef = useRef<Position[]>([
     { x: 9 * BOX_SIZE, y: 10 * BOX_SIZE },
@@ -32,6 +40,12 @@ export const SnakeGame = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const lastTimeRef = useRef<number>(0);
   const gameLoopRef = useRef<number>(0);
+  const powerUpsRef = useRef<PowerUp[]>([]);
+  const activePowerUpRef = useRef<{ type: PowerUpType; endTime: number } | null>(null);
+  const aiActivePowerUpRef = useRef<{ type: PowerUpType; endTime: number } | null>(null);
+  const lastKeyPressRef = useRef<{ key: string; time: number } | null>(null);
+  const dashCooldownRef = useRef<number>(0);
+  const powerUpSpawnTimerRef = useRef<number>(0);
 
   const handleStartGame = (selectedSpeed: number) => {
     setSpeed(selectedSpeed);
@@ -52,6 +66,11 @@ export const SnakeGame = () => {
     ];
     dirRef.current = "RIGHT";
     aiDirRef.current = "RIGHT";
+    powerUpsRef.current = [];
+    activePowerUpRef.current = null;
+    aiActivePowerUpRef.current = null;
+    dashCooldownRef.current = 0;
+    powerUpSpawnTimerRef.current = 0;
 
     spawnFood();
   };
@@ -75,9 +94,56 @@ export const SnakeGame = () => {
     setIsPaused(!isPaused);
   };
 
-  const endGame = (message: string) => {
+  const endGame = async (message: string) => {
     setEndMessage(message);
     setGameState("end");
+    
+    // Submit score to leaderboard
+    const isWin = message.includes("WIN") && !message.includes("AI");
+    const finalScore = isWin ? score : 0;
+    
+    if (username && finalScore > 0) {
+      await supabase.from("leaderboard").insert({
+        username,
+        score: finalScore,
+      });
+      
+      // Get user rank
+      const { data } = await supabase
+        .from("leaderboard")
+        .select("score")
+        .order("score", { ascending: false });
+      
+      if (data) {
+        const rank = data.findIndex((entry) => entry.score <= finalScore) + 1;
+        setUserRank(rank);
+      }
+      
+      // Get top 10 scores
+      const { data: topData } = await supabase
+        .from("leaderboard")
+        .select("username, score")
+        .order("score", { ascending: false })
+        .limit(10);
+      
+      if (topData) {
+        setTopScores(topData);
+      }
+    }
+  };
+
+  const spawnPowerUp = () => {
+    const types: PowerUpType[] = ["speed", "invincible", "multiplier", "shrink", "freeze"];
+    const type = types[Math.floor(Math.random() * types.length)];
+    const maxX = Math.floor(window.innerWidth / BOX_SIZE);
+    const maxY = Math.floor(window.innerHeight / BOX_SIZE);
+    
+    powerUpsRef.current.push({
+      x: Math.floor(Math.random() * maxX) * BOX_SIZE,
+      y: Math.floor(Math.random() * maxY) * BOX_SIZE,
+      type,
+      duration: POWERUP_DURATION,
+    });
   };
 
   const drawGame = () => {
@@ -116,6 +182,23 @@ export const SnakeGame = () => {
     ctx.fillStyle = "#ff006e";
     ctx.fillRect(foodRef.current.x + 2, foodRef.current.y + 2, BOX_SIZE - 4, BOX_SIZE - 4);
     ctx.shadowBlur = 0;
+
+    // Draw power-ups
+    powerUpsRef.current.forEach((powerUp) => {
+      const colors = {
+        speed: "#ffff00",
+        invincible: "#ff00ff",
+        multiplier: "#00ffff",
+        shrink: "#ff8800",
+        freeze: "#0088ff",
+      };
+      
+      ctx.shadowBlur = 25;
+      ctx.shadowColor = colors[powerUp.type];
+      ctx.fillStyle = colors[powerUp.type];
+      ctx.fillRect(powerUp.x + 1, powerUp.y + 1, BOX_SIZE - 2, BOX_SIZE - 2);
+      ctx.shadowBlur = 0;
+    });
 
     // Draw player snake
     snakeRef.current.forEach((segment, index) => {
@@ -169,7 +252,25 @@ export const SnakeGame = () => {
     const gameLoop = (currentTime: number) => {
       const deltaTime = currentTime - lastTimeRef.current;
 
-      if (deltaTime >= speed) {
+      // Update power-up spawn timer
+      powerUpSpawnTimerRef.current += deltaTime;
+      if (powerUpSpawnTimerRef.current >= POWERUP_SPAWN_INTERVAL) {
+        spawnPowerUp();
+        powerUpSpawnTimerRef.current = 0;
+      }
+
+      // Clear expired power-ups
+      const now = Date.now();
+      if (activePowerUpRef.current && now > activePowerUpRef.current.endTime) {
+        activePowerUpRef.current = null;
+      }
+      if (aiActivePowerUpRef.current && now > aiActivePowerUpRef.current.endTime) {
+        aiActivePowerUpRef.current = null;
+      }
+
+      const currentSpeed = activePowerUpRef.current?.type === "speed" ? speed * 0.7 : speed;
+
+      if (deltaTime >= currentSpeed) {
         lastTimeRef.current = currentTime;
 
         // Update player snake
@@ -198,14 +299,22 @@ export const SnakeGame = () => {
           newHead.y < 0 ||
           newHead.y >= window.innerHeight
         ) {
-          endGame("💀 GAME OVER - AI WINS!");
+          endGame("💀 WALL COLLISION - AI WINS!");
           return;
         }
 
         // Check player self collision
         if (snakeRef.current.some((seg) => seg.x === newHead.x && seg.y === newHead.y)) {
-          endGame("💀 COLLISION - AI WINS!");
+          endGame("💀 SELF COLLISION - AI WINS!");
           return;
+        }
+
+        // Check player collision with AI (only if not invincible)
+        if (!activePowerUpRef.current || activePowerUpRef.current.type !== "invincible") {
+          if (aiSnakeRef.current.some((seg) => seg.x === newHead.x && seg.y === newHead.y)) {
+            endGame("💀 HIT AI SNAKE - AI WINS!");
+            return;
+          }
         }
 
         const newSnake = [newHead, ...snakeRef.current];
@@ -213,7 +322,8 @@ export const SnakeGame = () => {
         // Check if player ate food
         if (newHead.x === foodRef.current.x && newHead.y === foodRef.current.y) {
           setScore((prev) => {
-            const newScore = prev + 1;
+            const multiplier = activePowerUpRef.current?.type === "multiplier" ? 2 : 1;
+            const newScore = prev + multiplier;
             if (newScore >= WIN_SCORE) {
               endGame("🎉 YOU WIN!");
             }
@@ -223,11 +333,39 @@ export const SnakeGame = () => {
         } else {
           newSnake.pop();
         }
+
+        // Check power-up collection
+        const collectedPowerUpIndex = powerUpsRef.current.findIndex(
+          (p) => p.x === newHead.x && p.y === newHead.y
+        );
+        if (collectedPowerUpIndex >= 0) {
+          const powerUp = powerUpsRef.current[collectedPowerUpIndex];
+          activePowerUpRef.current = {
+            type: powerUp.type,
+            endTime: Date.now() + powerUp.duration,
+          };
+          powerUpsRef.current.splice(collectedPowerUpIndex, 1);
+
+          // Apply shrink effect to AI
+          if (powerUp.type === "shrink" && aiSnakeRef.current.length > 3) {
+            aiSnakeRef.current = aiSnakeRef.current.slice(0, Math.ceil(aiSnakeRef.current.length / 2));
+          }
+
+          // Apply freeze effect to AI
+          if (powerUp.type === "freeze") {
+            aiActivePowerUpRef.current = {
+              type: "freeze",
+              endTime: Date.now() + powerUp.duration,
+            };
+          }
+        }
+
         snakeRef.current = newSnake;
 
-        // Update AI snake
-        const aiHead = aiSnakeRef.current[0];
-        const food = foodRef.current;
+        // Update AI snake (skip if frozen)
+        if (!aiActivePowerUpRef.current || aiActivePowerUpRef.current.type !== "freeze") {
+          const aiHead = aiSnakeRef.current[0];
+          const food = foodRef.current;
 
         const dx = food.x - aiHead.x;
         const dy = food.y - aiHead.y;
@@ -267,22 +405,46 @@ export const SnakeGame = () => {
             break;
         }
 
-        const newAiSnake = [newAiHead, ...aiSnakeRef.current];
+          // Check AI collision with walls
+          if (
+            newAiHead.x < 0 ||
+            newAiHead.x >= window.innerWidth ||
+            newAiHead.y < 0 ||
+            newAiHead.y >= window.innerHeight
+          ) {
+            endGame("🎉 AI HIT WALL - YOU WIN!");
+            return;
+          }
 
-        // Check if AI ate food
-        if (newAiHead.x === foodRef.current.x && newAiHead.y === foodRef.current.y) {
-          setAiScore((prev) => {
-            const newScore = prev + 1;
-            if (newScore >= WIN_SCORE) {
-              endGame("🤖 AI WINS!");
-            }
-            return newScore;
-          });
-          spawnFood();
-        } else {
-          newAiSnake.pop();
+          // Check AI self collision
+          if (aiSnakeRef.current.some((seg) => seg.x === newAiHead.x && seg.y === newAiHead.y)) {
+            endGame("🎉 AI SELF COLLISION - YOU WIN!");
+            return;
+          }
+
+          // Check AI collision with player
+          if (snakeRef.current.some((seg) => seg.x === newAiHead.x && seg.y === newAiHead.y)) {
+            endGame("🎉 AI HIT YOUR SNAKE - YOU WIN!");
+            return;
+          }
+
+          const newAiSnake = [newAiHead, ...aiSnakeRef.current];
+
+          // Check if AI ate food
+          if (newAiHead.x === foodRef.current.x && newAiHead.y === foodRef.current.y) {
+            setAiScore((prev) => {
+              const newScore = prev + 1;
+              if (newScore >= WIN_SCORE) {
+                endGame("🤖 AI WINS!");
+              }
+              return newScore;
+            });
+            spawnFood();
+          } else {
+            newAiSnake.pop();
+          }
+          aiSnakeRef.current = newAiSnake;
         }
-        aiSnakeRef.current = newAiSnake;
 
         drawGame();
       }
@@ -328,7 +490,44 @@ export const SnakeGame = () => {
       }
 
       if (newDir && newDir !== opposites[dirRef.current]) {
-        dirRef.current = newDir;
+        // Double tap detection for dash
+        const now = Date.now();
+        const lastPress = lastKeyPressRef.current;
+        
+        if (
+          lastPress &&
+          lastPress.key === e.key &&
+          now - lastPress.time < 300 &&
+          now > dashCooldownRef.current
+        ) {
+          // Execute dash
+          const head = snakeRef.current[0];
+          let dashHead = { ...head };
+          
+          for (let i = 0; i < DASH_SPEED; i++) {
+            switch (newDir) {
+              case "LEFT":
+                dashHead.x -= BOX_SIZE;
+                break;
+              case "RIGHT":
+                dashHead.x += BOX_SIZE;
+                break;
+              case "UP":
+                dashHead.y -= BOX_SIZE;
+                break;
+              case "DOWN":
+                dashHead.y += BOX_SIZE;
+                break;
+            }
+          }
+          
+          snakeRef.current = [dashHead, ...snakeRef.current.slice(0, -DASH_SPEED)];
+          dashCooldownRef.current = now + DASH_COOLDOWN;
+          lastKeyPressRef.current = null;
+        } else {
+          lastKeyPressRef.current = { key: e.key, time: now };
+          dirRef.current = newDir;
+        }
       }
 
       if (e.key === " ") {
@@ -344,7 +543,10 @@ export const SnakeGame = () => {
   return (
     <div className="relative w-screen h-screen overflow-hidden">
       {gameState === "start" && (
-        <StartScreen onStart={() => setGameState("level")} />
+        <StartScreen onStart={(name) => {
+          setUsername(name);
+          setGameState("level");
+        }} />
       )}
       
       {gameState === "level" && (
@@ -358,6 +560,8 @@ export const SnakeGame = () => {
             aiScore={aiScore}
             isPaused={isPaused}
             onTogglePause={handleTogglePause}
+            activePowerUp={activePowerUpRef.current?.type}
+            dashReady={Date.now() > dashCooldownRef.current}
           />
           <canvas
             ref={canvasRef}
@@ -369,7 +573,13 @@ export const SnakeGame = () => {
       )}
 
       {gameState === "end" && (
-        <EndScreen message={endMessage} onRestart={handleRestart} />
+        <EndScreen
+          message={endMessage}
+          onRestart={handleRestart}
+          score={score}
+          rank={userRank}
+          topScores={topScores}
+        />
       )}
     </div>
   );
