@@ -3,6 +3,7 @@ import { StartScreen } from "./game/StartScreen";
 import { LevelScreen } from "./game/LevelScreen";
 import { GameHUD } from "./game/GameHUD";
 import { EndScreen } from "./game/EndScreen";
+import { MobileControls } from "./game/MobileControls";
 import { GameState, Position, Direction, PowerUp, PowerUpType } from "./game/types";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -46,6 +47,7 @@ export const SnakeGame = () => {
   const lastKeyPressRef = useRef<{ key: string; time: number } | null>(null);
   const dashCooldownRef = useRef<number>(0);
   const powerUpSpawnTimerRef = useRef<number>(0);
+  const [canvasSize, setCanvasSize] = useState({ width: window.innerWidth, height: window.innerHeight });
 
   const handleStartGame = (selectedSpeed: number) => {
     setSpeed(selectedSpeed);
@@ -76,8 +78,8 @@ export const SnakeGame = () => {
   };
 
   const spawnFood = () => {
-    const maxX = Math.floor(window.innerWidth / BOX_SIZE);
-    const maxY = Math.floor(window.innerHeight / BOX_SIZE);
+    const maxX = Math.floor(canvasSize.width / BOX_SIZE);
+    const maxY = Math.floor(canvasSize.height / BOX_SIZE);
     foodRef.current = {
       x: Math.floor(Math.random() * maxX) * BOX_SIZE,
       y: Math.floor(Math.random() * maxY) * BOX_SIZE,
@@ -135,8 +137,8 @@ export const SnakeGame = () => {
   const spawnPowerUp = () => {
     const types: PowerUpType[] = ["speed", "invincible", "multiplier", "shrink", "freeze"];
     const type = types[Math.floor(Math.random() * types.length)];
-    const maxX = Math.floor(window.innerWidth / BOX_SIZE);
-    const maxY = Math.floor(window.innerHeight / BOX_SIZE);
+    const maxX = Math.floor(canvasSize.width / BOX_SIZE);
+    const maxY = Math.floor(canvasSize.height / BOX_SIZE);
     
     powerUpsRef.current.push({
       x: Math.floor(Math.random() * maxX) * BOX_SIZE,
@@ -153,8 +155,8 @@ export const SnakeGame = () => {
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    const width = window.innerWidth;
-    const height = window.innerHeight;
+    const width = canvasSize.width;
+    const height = canvasSize.height;
 
     // Clear canvas
     ctx.fillStyle = "#0a0a0f";
@@ -295,9 +297,9 @@ export const SnakeGame = () => {
         // Check player collision with walls
         if (
           newHead.x < 0 ||
-          newHead.x >= window.innerWidth ||
+          newHead.x >= canvasSize.width ||
           newHead.y < 0 ||
-          newHead.y >= window.innerHeight
+          newHead.y >= canvasSize.height
         ) {
           endGame("💀 WALL COLLISION - AI WINS!");
           return;
@@ -408,9 +410,9 @@ export const SnakeGame = () => {
           // Check AI collision with walls
           if (
             newAiHead.x < 0 ||
-            newAiHead.x >= window.innerWidth ||
+            newAiHead.x >= canvasSize.width ||
             newAiHead.y < 0 ||
-            newAiHead.y >= window.innerHeight
+            newAiHead.y >= canvasSize.height
           ) {
             endGame("🎉 AI HIT WALL - YOU WIN!");
             return;
@@ -540,6 +542,61 @@ export const SnakeGame = () => {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [gameState]);
 
+  // Handle canvas resizing
+  useEffect(() => {
+    const handleResize = () => {
+      setCanvasSize({ width: window.innerWidth, height: window.innerHeight });
+    };
+
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
+  const handleMobileDirection = (direction: Direction) => {
+    if (gameState !== "playing" || isPaused) return;
+    
+    const opposites: Record<Direction, Direction> = {
+      LEFT: "RIGHT",
+      RIGHT: "LEFT",
+      UP: "DOWN",
+      DOWN: "UP",
+    };
+    
+    if (direction !== opposites[dirRef.current]) {
+      dirRef.current = direction;
+    }
+  };
+
+  const handleMobileDash = () => {
+    if (gameState !== "playing" || isPaused) return;
+    const now = Date.now();
+    
+    if (now > dashCooldownRef.current) {
+      const head = snakeRef.current[0];
+      let dashHead = { ...head };
+      
+      for (let i = 0; i < DASH_SPEED; i++) {
+        switch (dirRef.current) {
+          case "LEFT":
+            dashHead.x -= BOX_SIZE;
+            break;
+          case "RIGHT":
+            dashHead.x += BOX_SIZE;
+            break;
+          case "UP":
+            dashHead.y -= BOX_SIZE;
+            break;
+          case "DOWN":
+            dashHead.y += BOX_SIZE;
+            break;
+        }
+      }
+      
+      snakeRef.current = [dashHead, ...snakeRef.current.slice(0, -DASH_SPEED)];
+      dashCooldownRef.current = now + DASH_COOLDOWN;
+    }
+  };
+
   return (
     <div className="relative w-screen h-screen overflow-hidden">
       {gameState === "start" && (
@@ -566,8 +623,13 @@ export const SnakeGame = () => {
           <canvas
             ref={canvasRef}
             className="absolute inset-0 w-full h-full"
-            width={window.innerWidth}
-            height={window.innerHeight}
+            width={canvasSize.width}
+            height={canvasSize.height}
+          />
+          <MobileControls
+            onDirectionChange={handleMobileDirection}
+            onDash={handleMobileDash}
+            dashReady={Date.now() > dashCooldownRef.current}
           />
         </>
       )}
