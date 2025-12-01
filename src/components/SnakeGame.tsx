@@ -549,11 +549,43 @@ export const SnakeGame = () => {
     };
 
     window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
-  }, []);
+    
+    const canvas = canvasRef.current;
+    if (canvas) {
+      canvas.addEventListener("touchstart", handleTouchStart);
+      canvas.addEventListener("touchend", handleTouchEnd);
+    }
+    
+    return () => {
+      window.removeEventListener("resize", handleResize);
+      if (canvas) {
+        canvas.removeEventListener("touchstart", handleTouchStart);
+        canvas.removeEventListener("touchend", handleTouchEnd);
+      }
+    };
+  }, [gameState, isPaused]);
 
-  const handleMobileDirection = (direction: Direction) => {
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+
+  const handleTouchStart = (e: TouchEvent) => {
     if (gameState !== "playing" || isPaused) return;
+    const touch = e.touches[0];
+    touchStartRef.current = { x: touch.clientX, y: touch.clientY };
+  };
+
+  const handleTouchEnd = (e: TouchEvent) => {
+    if (!touchStartRef.current || gameState !== "playing" || isPaused) return;
+    
+    const touch = e.changedTouches[0];
+    const deltaX = touch.clientX - touchStartRef.current.x;
+    const deltaY = touch.clientY - touchStartRef.current.y;
+    
+    const minSwipeDistance = 30;
+    
+    if (Math.abs(deltaX) < minSwipeDistance && Math.abs(deltaY) < minSwipeDistance) {
+      touchStartRef.current = null;
+      return;
+    }
     
     const opposites: Record<Direction, Direction> = {
       LEFT: "RIGHT",
@@ -562,9 +594,19 @@ export const SnakeGame = () => {
       DOWN: "UP",
     };
     
-    if (direction !== opposites[dirRef.current]) {
-      dirRef.current = direction;
+    let newDirection: Direction;
+    
+    if (Math.abs(deltaX) > Math.abs(deltaY)) {
+      newDirection = deltaX > 0 ? "RIGHT" : "LEFT";
+    } else {
+      newDirection = deltaY > 0 ? "DOWN" : "UP";
     }
+    
+    if (newDirection !== opposites[dirRef.current]) {
+      dirRef.current = newDirection;
+    }
+    
+    touchStartRef.current = null;
   };
 
   const handleMobileDash = () => {
@@ -627,7 +669,6 @@ export const SnakeGame = () => {
             height={canvasSize.height}
           />
           <MobileControls
-            onDirectionChange={handleMobileDirection}
             onDash={handleMobileDash}
             dashReady={Date.now() > dashCooldownRef.current}
           />
