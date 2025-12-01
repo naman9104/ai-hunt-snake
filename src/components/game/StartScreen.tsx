@@ -7,7 +7,17 @@ interface StartScreenProps {
 }
 
 export const StartScreen = ({ onStart }: StartScreenProps) => {
-  const [username, setUsername] = useState("");
+  const [username, setUsername] = useState(() => {
+    return localStorage.getItem("snakeUsername") || "";
+  });
+
+  const handleStart = () => {
+    const trimmedName = username.trim();
+    if (trimmedName) {
+      localStorage.setItem("snakeUsername", trimmedName);
+      onStart(trimmedName);
+    }
+  };
 
   return (
     <div className="absolute inset-0 flex flex-col items-center justify-center bg-background z-50 animate-fade-in">
@@ -41,7 +51,7 @@ export const StartScreen = ({ onStart }: StartScreenProps) => {
           />
           
           <Button
-            onClick={() => username.trim() && onStart(username.trim())}
+            onClick={handleStart}
             disabled={!username.trim()}
             size="lg"
             className="w-full text-2xl px-12 py-8 font-bold transition-all duration-300 hover:scale-105 bg-primary hover:bg-primary/90 text-primary-foreground shadow-neon-green disabled:opacity-50 disabled:cursor-not-allowed"
