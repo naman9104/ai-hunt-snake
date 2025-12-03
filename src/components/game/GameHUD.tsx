@@ -1,13 +1,11 @@
 import { Button } from "@/components/ui/button";
 import { Play, Pause, Zap } from "lucide-react";
-import { PowerUpType } from "./types";
 
 interface GameHUDProps {
   score: number;
   aiScore: number;
   isPaused: boolean;
   onTogglePause: () => void;
-  activePowerUp?: PowerUpType;
   dashReady: boolean;
 }
 
@@ -16,17 +14,8 @@ export const GameHUD = ({
   aiScore,
   isPaused,
   onTogglePause,
-  activePowerUp,
   dashReady,
 }: GameHUDProps) => {
-  const powerUpLabels: Record<PowerUpType, string> = {
-    speed: "⚡ SPEED",
-    invincible: "🛡️ INVINCIBLE",
-    multiplier: "✖️ 2X SCORE",
-    shrink: "📉 SHRINK AI",
-    freeze: "❄️ FREEZE AI",
-  };
-
   return (
     <div className="absolute top-4 left-4 right-4 z-10 flex justify-between items-start">
       <div className="space-y-2">
@@ -41,12 +30,6 @@ export const GameHUD = ({
       </div>
 
       <div className="flex flex-col items-end gap-2">
-        {activePowerUp && (
-          <div className="px-4 py-2 bg-accent/20 border-2 border-accent rounded-lg text-accent font-bold animate-pulse-glow">
-            {powerUpLabels[activePowerUp]}
-          </div>
-        )}
-        
         {dashReady && (
           <div className="px-4 py-2 bg-primary/20 border-2 border-primary rounded-lg text-primary font-bold flex items-center gap-2 animate-pulse">
             <Zap className="h-4 w-4" />
