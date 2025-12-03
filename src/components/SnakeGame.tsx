@@ -11,8 +11,9 @@ import { sounds } from "./game/sounds";
 
 const BOX_SIZE = 20;
 const WIN_SCORE = 10;
-const DASH_SPEED = 3;
+const DASH_SPEED = 2;
 const DASH_COOLDOWN = 1000;
+const MIN_SNAKE_LENGTH = 3;
 
 export const SnakeGame = () => {
   const [gameState, setGameState] = useState<GameState>("start");
@@ -21,7 +22,9 @@ export const SnakeGame = () => {
   const [speed, setSpeed] = useState(150);
   const [isPaused, setIsPaused] = useState(false);
   const [endMessage, setEndMessage] = useState("");
-  const [username, setUsername] = useState("");
+  const [username, setUsername] = useState(() => {
+    return localStorage.getItem("snakeUsername") || "";
+  });
   const [userRank, setUserRank] = useState<number | null>(null);
   const [topScores, setTopScores] = useState<Array<{ username: string; score: number }>>([]);
   const [showTutorial, setShowTutorial] = useState(() => {
@@ -118,7 +121,7 @@ export const SnakeGame = () => {
       sounds.lose();
     }
     
-    // Submit score to leaderboard
+    // Submit score to leaderboard (only if win and score > 0)
     if (username && isWin && score > 0) {
       await supabase.from("leaderboard").insert({
         username,
@@ -135,18 +138,45 @@ export const SnakeGame = () => {
         const rank = data.findIndex((entry) => entry.score <= score) + 1;
         setUserRank(rank);
       }
-      
-      // Get top 10 scores
-      const { data: topData } = await supabase
-        .from("leaderboard")
-        .select("username, score")
-        .order("score", { ascending: false })
-        .limit(10);
-      
-      if (topData) {
-        setTopScores(topData);
-      }
     }
+    
+    // Always refresh top 10 scores
+    const { data: topData } = await supabase
+      .from("leaderboard")
+      .select("username, score")
+      .order("score", { ascending: false })
+      .limit(10);
+    
+    if (topData) {
+      setTopScores(topData);
+    }
+  };
+
+  // AI pathfinding helper - check if a move is safe
+  const isSafeMove = (pos: Position): boolean => {
+    // Check wall collision
+    if (pos.x < 0 || pos.x >= canvasSize.width || pos.y < 0 || pos.y >= canvasSize.height) {
+      return false;
+    }
+    // Check self collision
+    if (aiSnakeRef.current.some((seg) => seg.x === pos.x && seg.y === pos.y)) {
+      return false;
+    }
+    // Check player collision
+    if (snakeRef.current.some((seg) => seg.x === pos.x && seg.y === pos.y)) {
+      return false;
+    }
+    return true;
+  };
+
+  // Get possible next positions for AI
+  const getAiNextPositions = (head: Position): Record<Direction, Position> => {
+    return {
+      LEFT: { x: head.x - BOX_SIZE, y: head.y },
+      RIGHT: { x: head.x + BOX_SIZE, y: head.y },
+      UP: { x: head.x, y: head.y - BOX_SIZE },
+      DOWN: { x: head.x, y: head.y + BOX_SIZE },
+    };
   };
 
   const drawGame = () => {
@@ -305,19 +335,10 @@ export const SnakeGame = () => {
 
         snakeRef.current = newSnake;
 
-        // Update AI snake
+        // Update AI snake with smarter pathfinding
         const aiHead = aiSnakeRef.current[0];
         const food = foodRef.current;
-
-        const dx = food.x - aiHead.x;
-        const dy = food.y - aiHead.y;
-
-        let newAiDir = aiDirRef.current;
-        if (Math.abs(dx) > Math.abs(dy)) {
-          newAiDir = dx > 0 ? "RIGHT" : "LEFT";
-        } else {
-          newAiDir = dy > 0 ? "DOWN" : "UP";
-        }
+        const nextPositions = getAiNextPositions(aiHead);
 
         const opposites: Record<Direction, Direction> = {
           LEFT: "RIGHT",
@@ -325,8 +346,48 @@ export const SnakeGame = () => {
           UP: "DOWN",
           DOWN: "UP",
         };
-        if (newAiDir === opposites[aiDirRef.current]) {
-          newAiDir = aiDirRef.current;
+
+        // Calculate direction preferences based on food position
+        const dx = food.x - aiHead.x;
+        const dy = food.y - aiHead.y;
+
+        // Priority: try to move towards food if safe, otherwise find any safe direction
+        const directions: Direction[] = [];
+        
+        // Add preferred directions (towards food)
+        if (Math.abs(dx) > Math.abs(dy)) {
+          directions.push(dx > 0 ? "RIGHT" : "LEFT");
+          directions.push(dy > 0 ? "DOWN" : "UP");
+          directions.push(dy > 0 ? "UP" : "DOWN");
+          directions.push(dx > 0 ? "LEFT" : "RIGHT");
+        } else {
+          directions.push(dy > 0 ? "DOWN" : "UP");
+          directions.push(dx > 0 ? "RIGHT" : "LEFT");
+          directions.push(dx > 0 ? "LEFT" : "RIGHT");
+          directions.push(dy > 0 ? "UP" : "DOWN");
+        }
+
+        // Find the best safe direction
+        let newAiDir = aiDirRef.current;
+        for (const dir of directions) {
+          // Don't go backwards
+          if (dir === opposites[aiDirRef.current]) continue;
+          
+          if (isSafeMove(nextPositions[dir])) {
+            newAiDir = dir;
+            break;
+          }
+        }
+
+        // If no preferred direction is safe, try any safe direction
+        if (!isSafeMove(nextPositions[newAiDir])) {
+          const allDirs: Direction[] = ["UP", "DOWN", "LEFT", "RIGHT"];
+          for (const dir of allDirs) {
+            if (dir !== opposites[aiDirRef.current] && isSafeMove(nextPositions[dir])) {
+              newAiDir = dir;
+              break;
+            }
+          }
         }
 
         aiDirRef.current = newAiDir;
@@ -401,7 +462,7 @@ export const SnakeGame = () => {
         cancelAnimationFrame(gameLoopRef.current);
       }
     };
-  }, [gameState, speed, isPaused]);
+  }, [gameState, speed, isPaused, canvasSize]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -439,9 +500,10 @@ export const SnakeGame = () => {
           lastPress &&
           lastPress.key === e.key &&
           now - lastPress.time < 300 &&
-          now > dashCooldownRef.current
+          now > dashCooldownRef.current &&
+          snakeRef.current.length > MIN_SNAKE_LENGTH // Only dash if snake is long enough
         ) {
-          // Execute dash
+          // Execute dash - only remove segments if snake is long enough
           sounds.dash();
           const head = snakeRef.current[0];
           let dashHead = { ...head };
@@ -463,7 +525,14 @@ export const SnakeGame = () => {
             }
           }
           
-          snakeRef.current = [dashHead, ...snakeRef.current.slice(0, -DASH_SPEED)];
+          // Keep minimum snake length
+          const segmentsToRemove = Math.min(DASH_SPEED, snakeRef.current.length - MIN_SNAKE_LENGTH);
+          if (segmentsToRemove > 0) {
+            snakeRef.current = [dashHead, ...snakeRef.current.slice(0, -segmentsToRemove)];
+          } else {
+            snakeRef.current = [dashHead, ...snakeRef.current];
+          }
+          
           dashCooldownRef.current = now + DASH_COOLDOWN;
           lastKeyPressRef.current = null;
         } else {
@@ -549,6 +618,8 @@ export const SnakeGame = () => {
 
   const handleMobileDash = () => {
     if (gameState !== "playing" || isPaused) return;
+    if (snakeRef.current.length <= MIN_SNAKE_LENGTH) return; // Don't dash if too short
+    
     const now = Date.now();
     
     if (now > dashCooldownRef.current) {
@@ -573,7 +644,14 @@ export const SnakeGame = () => {
         }
       }
       
-      snakeRef.current = [dashHead, ...snakeRef.current.slice(0, -DASH_SPEED)];
+      // Keep minimum snake length
+      const segmentsToRemove = Math.min(DASH_SPEED, snakeRef.current.length - MIN_SNAKE_LENGTH);
+      if (segmentsToRemove > 0) {
+        snakeRef.current = [dashHead, ...snakeRef.current.slice(0, -segmentsToRemove)];
+      } else {
+        snakeRef.current = [dashHead, ...snakeRef.current];
+      }
+      
       dashCooldownRef.current = now + DASH_COOLDOWN;
     }
   };
@@ -583,6 +661,12 @@ export const SnakeGame = () => {
     setShowTutorial(false);
   };
 
+  const handleUsernameSet = (name: string) => {
+    localStorage.setItem("snakeUsername", name);
+    setUsername(name);
+    setGameState("level");
+  };
+
   return (
     <div className="relative w-screen h-screen overflow-hidden">
       {gameState === "start" && showTutorial && (
@@ -590,10 +674,7 @@ export const SnakeGame = () => {
       )}
       
       {gameState === "start" && !showTutorial && (
-        <StartScreen onStart={(name) => {
-          setUsername(name);
-          setGameState("level");
-        }} />
+        <StartScreen onStart={handleUsernameSet} />
       )}
       
       {gameState === "level" && (
@@ -607,7 +688,7 @@ export const SnakeGame = () => {
             aiScore={aiScore}
             isPaused={isPaused}
             onTogglePause={handleTogglePause}
-            dashReady={Date.now() > dashCooldownRef.current}
+            dashReady={Date.now() > dashCooldownRef.current && snakeRef.current.length > MIN_SNAKE_LENGTH}
           />
           <canvas
             ref={canvasRef}
@@ -617,7 +698,7 @@ export const SnakeGame = () => {
           />
           <MobileControls
             onDash={handleMobileDash}
-            dashReady={Date.now() > dashCooldownRef.current}
+            dashReady={Date.now() > dashCooldownRef.current && snakeRef.current.length > MIN_SNAKE_LENGTH}
           />
         </>
       )}
