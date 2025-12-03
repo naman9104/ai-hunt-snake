@@ -46,7 +46,7 @@ export const EndScreen = ({ message, onRestart, score, rank, topScores }: EndScr
         <p className="text-muted-foreground text-xl">
           {isWin
             ? "Incredible reflexes! You've defeated the AI!"
-            : "The AI was faster this time. Try again?"}
+            : "Don't give up! Try again?"}
         </p>
 
         {topScores.length > 0 && (
