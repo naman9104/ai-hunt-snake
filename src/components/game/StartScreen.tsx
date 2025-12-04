@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Trophy } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { LeaderboardModal } from "./LeaderboardModal";
 
 interface StartScreenProps {
   onStart: (username: string) => void;
@@ -13,6 +14,7 @@ export const StartScreen = ({ onStart }: StartScreenProps) => {
     return localStorage.getItem("snakeUsername") || "";
   });
   const [topScores, setTopScores] = useState<Array<{ username: string; score: number }>>([]);
+  const [showLeaderboard, setShowLeaderboard] = useState(false);
 
   useEffect(() => {
     const fetchLeaderboard = async () => {
@@ -75,6 +77,16 @@ export const StartScreen = ({ onStart }: StartScreenProps) => {
           >
             START GAME
           </Button>
+
+          <Button
+            onClick={() => setShowLeaderboard(true)}
+            variant="outline"
+            size="lg"
+            className="w-full text-lg px-8 py-5 font-bold transition-all duration-300 hover:scale-105 border-2 border-accent hover:bg-accent/20 text-accent"
+          >
+            <Trophy className="h-5 w-5 mr-2" />
+            VIEW LEADERBOARD
+          </Button>
         </div>
 
         {topScores.length > 0 && (
@@ -119,6 +131,11 @@ export const StartScreen = ({ onStart }: StartScreenProps) => {
           <p>Double tap for DASH</p>
         </div>
       </div>
+
+      <LeaderboardModal
+        isOpen={showLeaderboard}
+        onClose={() => setShowLeaderboard(false)}
+      />
     </div>
   );
 };

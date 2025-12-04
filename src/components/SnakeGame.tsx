@@ -51,6 +51,11 @@ export const SnakeGame = () => {
   const dashCooldownRef = useRef<number>(0);
   const [canvasSize, setCanvasSize] = useState({ width: window.innerWidth, height: window.innerHeight });
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+  
+  // Trail history for visual effects
+  const playerTrailRef = useRef<Position[]>([]);
+  const aiTrailRef = useRef<Position[]>([]);
+  const TRAIL_LENGTH = 15;
 
   // Fetch leaderboard on mount
   useEffect(() => {
@@ -88,6 +93,8 @@ export const SnakeGame = () => {
     dirRef.current = "RIGHT";
     aiDirRef.current = "RIGHT";
     dashCooldownRef.current = 0;
+    playerTrailRef.current = [];
+    aiTrailRef.current = [];
 
     spawnFood();
   };
@@ -209,8 +216,41 @@ export const SnakeGame = () => {
       ctx.stroke();
     }
 
-    // Draw food
-    ctx.shadowBlur = 20;
+    // Draw player trail
+    playerTrailRef.current.forEach((pos, index) => {
+      const alpha = (1 - index / TRAIL_LENGTH) * 0.3;
+      const size = BOX_SIZE * (1 - index / TRAIL_LENGTH) * 0.6;
+      ctx.fillStyle = `rgba(0, 255, 65, ${alpha})`;
+      ctx.beginPath();
+      ctx.arc(
+        pos.x + BOX_SIZE / 2,
+        pos.y + BOX_SIZE / 2,
+        size / 2,
+        0,
+        Math.PI * 2
+      );
+      ctx.fill();
+    });
+
+    // Draw AI trail
+    aiTrailRef.current.forEach((pos, index) => {
+      const alpha = (1 - index / TRAIL_LENGTH) * 0.3;
+      const size = BOX_SIZE * (1 - index / TRAIL_LENGTH) * 0.6;
+      ctx.fillStyle = `rgba(0, 240, 255, ${alpha})`;
+      ctx.beginPath();
+      ctx.arc(
+        pos.x + BOX_SIZE / 2,
+        pos.y + BOX_SIZE / 2,
+        size / 2,
+        0,
+        Math.PI * 2
+      );
+      ctx.fill();
+    });
+
+    // Draw food with pulsing effect
+    const pulse = Math.sin(Date.now() / 200) * 3 + 3;
+    ctx.shadowBlur = 20 + pulse;
     ctx.shadowColor = "#ff006e";
     ctx.fillStyle = "#ff006e";
     ctx.fillRect(foodRef.current.x + 2, foodRef.current.y + 2, BOX_SIZE - 4, BOX_SIZE - 4);
@@ -222,10 +262,10 @@ export const SnakeGame = () => {
       const alpha = 1 - (index / snakeRef.current.length) * 0.5;
       
       if (isHead) {
-        ctx.shadowBlur = 20;
+        ctx.shadowBlur = 25;
         ctx.shadowColor = "#00ff41";
         ctx.fillStyle = "#00ff41";
-        ctx.fillRect(segment.x + 2, segment.y + 2, BOX_SIZE - 4, BOX_SIZE - 4);
+        ctx.fillRect(segment.x + 1, segment.y + 1, BOX_SIZE - 2, BOX_SIZE - 2);
         ctx.shadowBlur = 0;
       } else {
         ctx.shadowBlur = 10;
@@ -242,10 +282,10 @@ export const SnakeGame = () => {
       const alpha = 1 - (index / aiSnakeRef.current.length) * 0.5;
       
       if (isHead) {
-        ctx.shadowBlur = 20;
+        ctx.shadowBlur = 25;
         ctx.shadowColor = "#00f0ff";
         ctx.fillStyle = "#00f0ff";
-        ctx.fillRect(segment.x + 2, segment.y + 2, BOX_SIZE - 4, BOX_SIZE - 4);
+        ctx.fillRect(segment.x + 1, segment.y + 1, BOX_SIZE - 2, BOX_SIZE - 2);
         ctx.shadowBlur = 0;
       } else {
         ctx.shadowBlur = 10;
@@ -334,6 +374,12 @@ export const SnakeGame = () => {
         }
 
         snakeRef.current = newSnake;
+        
+        // Update player trail
+        playerTrailRef.current.unshift({ ...snakeRef.current[snakeRef.current.length - 1] });
+        if (playerTrailRef.current.length > TRAIL_LENGTH) {
+          playerTrailRef.current.pop();
+        }
 
         // Update AI snake with smarter pathfinding
         const aiHead = aiSnakeRef.current[0];
@@ -447,6 +493,12 @@ export const SnakeGame = () => {
           newAiSnake.pop();
         }
         aiSnakeRef.current = newAiSnake;
+        
+        // Update AI trail
+        aiTrailRef.current.unshift({ ...aiSnakeRef.current[aiSnakeRef.current.length - 1] });
+        if (aiTrailRef.current.length > TRAIL_LENGTH) {
+          aiTrailRef.current.pop();
+        }
 
         drawGame();
       }
