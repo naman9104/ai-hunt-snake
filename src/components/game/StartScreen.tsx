@@ -4,12 +4,15 @@ import { Input } from "@/components/ui/input";
 import { Trophy } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { LeaderboardModal } from "./LeaderboardModal";
+import { SkinSelector } from "./SkinSelector";
 
 interface StartScreenProps {
-  onStart: (username: string) => void;
+  onStart: (username: string, skinId: string) => void;
+  selectedSkin: string;
+  onSelectSkin: (skinId: string) => void;
 }
 
-export const StartScreen = ({ onStart }: StartScreenProps) => {
+export const StartScreen = ({ onStart, selectedSkin, onSelectSkin }: StartScreenProps) => {
   const [username, setUsername] = useState(() => {
     return localStorage.getItem("snakeUsername") || "";
   });
@@ -34,32 +37,35 @@ export const StartScreen = ({ onStart }: StartScreenProps) => {
     const trimmedName = username.trim();
     if (trimmedName) {
       localStorage.setItem("snakeUsername", trimmedName);
-      onStart(trimmedName);
+      localStorage.setItem("snakeSkin", selectedSkin);
+      onStart(trimmedName, selectedSkin);
     }
   };
 
   return (
-    <div className="absolute inset-0 flex flex-col items-center justify-center bg-background z-50 animate-fade-in">
-      <div className="text-center space-y-6 px-4 max-w-md w-full">
+    <div className="absolute inset-0 flex flex-col items-center justify-center bg-background z-50 animate-fade-in overflow-y-auto py-8">
+      <div className="text-center space-y-5 px-4 max-w-md w-full">
         <div className="animate-float">
-          <h1 className="text-6xl md:text-8xl font-black text-transparent bg-clip-text bg-gradient-to-r from-primary via-secondary to-accent animate-pulse-glow">
+          <h1 className="text-5xl md:text-7xl font-black text-transparent bg-clip-text bg-gradient-to-r from-primary via-secondary to-accent animate-pulse-glow">
             SNAKE
           </h1>
           <div className="flex items-center justify-center gap-4 mt-2">
             <div className="h-1 w-16 bg-primary shadow-neon-green"></div>
-            <span className="text-xl md:text-3xl font-bold text-foreground">VS</span>
+            <span className="text-xl md:text-2xl font-bold text-foreground">VS</span>
             <div className="h-1 w-16 bg-secondary shadow-neon-cyan"></div>
           </div>
-          <h2 className="text-4xl md:text-6xl font-black text-transparent bg-clip-text bg-gradient-to-r from-secondary via-accent to-primary mt-2">
+          <h2 className="text-4xl md:text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-secondary via-accent to-primary mt-2">
             AI
           </h2>
         </div>
 
-        <p className="text-muted-foreground text-base md:text-lg">
+        <p className="text-muted-foreground text-sm md:text-base">
           Race against an intelligent AI. First to 10 points wins!
         </p>
 
-        <div className="space-y-4 w-full">
+        <SkinSelector selectedSkin={selectedSkin} onSelectSkin={onSelectSkin} />
+
+        <div className="space-y-3 w-full">
           <Input
             type="text"
             placeholder="Enter your username"
@@ -111,11 +117,7 @@ export const StartScreen = ({ onStart }: StartScreenProps) => {
           </div>
         )}
 
-        <div className="flex gap-3 text-xs text-muted-foreground justify-center">
-          <div className="flex items-center gap-1">
-            <div className="w-3 h-3 bg-primary shadow-neon-green rounded"></div>
-            <span>You</span>
-          </div>
+        <div className="flex gap-3 text-xs text-muted-foreground justify-center flex-wrap">
           <div className="flex items-center gap-1">
             <div className="w-3 h-3 bg-secondary shadow-neon-cyan rounded"></div>
             <span>AI</span>

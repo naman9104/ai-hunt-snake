@@ -1,5 +1,5 @@
 import { Button } from "@/components/ui/button";
-import { Play, Pause, Zap } from "lucide-react";
+import { Play, Pause, Zap, Volume2, VolumeX } from "lucide-react";
 
 interface GameHUDProps {
   score: number;
@@ -7,6 +7,8 @@ interface GameHUDProps {
   isPaused: boolean;
   onTogglePause: () => void;
   dashReady: boolean;
+  musicPlaying: boolean;
+  onToggleMusic: () => void;
 }
 
 export const GameHUD = ({
@@ -15,6 +17,8 @@ export const GameHUD = ({
   isPaused,
   onTogglePause,
   dashReady,
+  musicPlaying,
+  onToggleMusic,
 }: GameHUDProps) => {
   return (
     <div className="absolute top-4 left-4 right-4 z-10 flex justify-between items-start">
@@ -37,14 +41,26 @@ export const GameHUD = ({
           </div>
         )}
 
-        <Button
-          onClick={onTogglePause}
-          size="icon"
-          variant="outline"
-          className="h-12 w-12 border-2 border-foreground hover:bg-foreground hover:text-background transition-all"
-        >
-          {isPaused ? <Play className="h-6 w-6" /> : <Pause className="h-6 w-6" />}
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            onClick={onToggleMusic}
+            size="icon"
+            variant="outline"
+            className="h-12 w-12 border-2 border-accent hover:bg-accent/20 transition-all"
+            title={musicPlaying ? "Mute Music" : "Play Music"}
+          >
+            {musicPlaying ? <Volume2 className="h-5 w-5 text-accent" /> : <VolumeX className="h-5 w-5" />}
+          </Button>
+          
+          <Button
+            onClick={onTogglePause}
+            size="icon"
+            variant="outline"
+            className="h-12 w-12 border-2 border-foreground hover:bg-foreground hover:text-background transition-all"
+          >
+            {isPaused ? <Play className="h-6 w-6" /> : <Pause className="h-6 w-6" />}
+          </Button>
+        </div>
         
         {isPaused && (
           <div className="bg-card/90 backdrop-blur-sm px-4 py-2 rounded-lg border-2 border-accent animate-pulse">

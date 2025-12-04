@@ -5,9 +5,9 @@ import { LevelScreen } from "./game/LevelScreen";
 import { GameHUD } from "./game/GameHUD";
 import { EndScreen } from "./game/EndScreen";
 import { MobileControls } from "./game/MobileControls";
-import { GameState, Position, Direction } from "./game/types";
+import { GameState, Position, Direction, Particle, SNAKE_SKINS } from "./game/types";
 import { supabase } from "@/integrations/supabase/client";
-import { sounds } from "./game/sounds";
+import { sounds, backgroundMusic } from "./game/sounds";
 
 const BOX_SIZE = 20;
 const WIN_SCORE = 10;
@@ -29,6 +29,10 @@ export const SnakeGame = () => {
   const [topScores, setTopScores] = useState<Array<{ username: string; score: number }>>([]);
   const [showTutorial, setShowTutorial] = useState(() => {
     return !localStorage.getItem("snakeTutorialSeen");
+  });
+  const [musicPlaying, setMusicPlaying] = useState(false);
+  const [selectedSkin, setSelectedSkin] = useState(() => {
+    return localStorage.getItem("snakeSkin") || "neon-green";
   });
 
   const snakeRef = useRef<Position[]>([
@@ -56,6 +60,46 @@ export const SnakeGame = () => {
   const playerTrailRef = useRef<Position[]>([]);
   const aiTrailRef = useRef<Position[]>([]);
   const TRAIL_LENGTH = 15;
+  
+  // Particle system
+  const particlesRef = useRef<Particle[]>([]);
+
+  const handleToggleMusic = () => {
+    const isPlaying = backgroundMusic.toggle();
+    setMusicPlaying(isPlaying);
+  };
+
+  const spawnParticles = (x: number, y: number, color: string, count: number = 12) => {
+    for (let i = 0; i < count; i++) {
+      const angle = (Math.PI * 2 * i) / count;
+      const speed = 2 + Math.random() * 3;
+      particlesRef.current.push({
+        x: x + BOX_SIZE / 2,
+        y: y + BOX_SIZE / 2,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        life: 1,
+        maxLife: 1,
+        color,
+        size: 4 + Math.random() * 4,
+      });
+    }
+  };
+
+  const updateParticles = () => {
+    particlesRef.current = particlesRef.current.filter((p) => {
+      p.x += p.vx;
+      p.y += p.vy;
+      p.vx *= 0.95;
+      p.vy *= 0.95;
+      p.life -= 0.03;
+      return p.life > 0;
+    });
+  };
+
+  const getPlayerSkin = () => {
+    return SNAKE_SKINS.find((s) => s.id === selectedSkin) || SNAKE_SKINS[0];
+  };
 
   // Fetch leaderboard on mount
   useEffect(() => {
@@ -121,6 +165,8 @@ export const SnakeGame = () => {
   const endGame = async (message: string, isWin: boolean) => {
     setEndMessage(message);
     setGameState("end");
+    backgroundMusic.stop();
+    setMusicPlaying(false);
     
     if (isWin) {
       sounds.win();
@@ -216,11 +262,26 @@ export const SnakeGame = () => {
       ctx.stroke();
     }
 
+    // Get player skin
+    const playerSkin = getPlayerSkin();
+    
+    // Convert hex to RGB for alpha support
+    const hexToRgb = (hex: string) => {
+      const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+      return result ? {
+        r: parseInt(result[1], 16),
+        g: parseInt(result[2], 16),
+        b: parseInt(result[3], 16)
+      } : { r: 0, g: 255, b: 65 };
+    };
+    
+    const skinRgb = hexToRgb(playerSkin.headColor);
+
     // Draw player trail
     playerTrailRef.current.forEach((pos, index) => {
       const alpha = (1 - index / TRAIL_LENGTH) * 0.3;
       const size = BOX_SIZE * (1 - index / TRAIL_LENGTH) * 0.6;
-      ctx.fillStyle = `rgba(0, 255, 65, ${alpha})`;
+      ctx.fillStyle = `rgba(${skinRgb.r}, ${skinRgb.g}, ${skinRgb.b}, ${alpha})`;
       ctx.beginPath();
       ctx.arc(
         pos.x + BOX_SIZE / 2,
@@ -248,6 +309,17 @@ export const SnakeGame = () => {
       ctx.fill();
     });
 
+    // Draw particles
+    particlesRef.current.forEach((p) => {
+      const alpha = p.life / p.maxLife;
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = p.color;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.size * alpha, 0, Math.PI * 2);
+      ctx.fill();
+    });
+    ctx.globalAlpha = 1;
+
     // Draw food with pulsing effect
     const pulse = Math.sin(Date.now() / 200) * 3 + 3;
     ctx.shadowBlur = 20 + pulse;
@@ -256,21 +328,21 @@ export const SnakeGame = () => {
     ctx.fillRect(foodRef.current.x + 2, foodRef.current.y + 2, BOX_SIZE - 4, BOX_SIZE - 4);
     ctx.shadowBlur = 0;
 
-    // Draw player snake
+    // Draw player snake with selected skin
     snakeRef.current.forEach((segment, index) => {
       const isHead = index === 0;
       const alpha = 1 - (index / snakeRef.current.length) * 0.5;
       
       if (isHead) {
         ctx.shadowBlur = 25;
-        ctx.shadowColor = "#00ff41";
-        ctx.fillStyle = "#00ff41";
+        ctx.shadowColor = playerSkin.glowColor;
+        ctx.fillStyle = playerSkin.headColor;
         ctx.fillRect(segment.x + 1, segment.y + 1, BOX_SIZE - 2, BOX_SIZE - 2);
         ctx.shadowBlur = 0;
       } else {
         ctx.shadowBlur = 10;
-        ctx.shadowColor = "#00ff41";
-        ctx.fillStyle = `rgba(0, 255, 65, ${alpha})`;
+        ctx.shadowColor = playerSkin.glowColor;
+        ctx.fillStyle = `rgba(${skinRgb.r}, ${skinRgb.g}, ${skinRgb.b}, ${alpha})`;
         ctx.fillRect(segment.x + 3, segment.y + 3, BOX_SIZE - 6, BOX_SIZE - 6);
         ctx.shadowBlur = 0;
       }
@@ -338,6 +410,7 @@ export const SnakeGame = () => {
           newHead.y >= canvasSize.height
         ) {
           sounds.collision();
+          spawnParticles(newHead.x, newHead.y, getPlayerSkin().headColor, 20);
           endGame("💀 WALL COLLISION!", false);
           return;
         }
@@ -345,6 +418,7 @@ export const SnakeGame = () => {
         // Check player self collision
         if (snakeRef.current.some((seg) => seg.x === newHead.x && seg.y === newHead.y)) {
           sounds.collision();
+          spawnParticles(newHead.x, newHead.y, getPlayerSkin().headColor, 20);
           endGame("💀 SELF COLLISION!", false);
           return;
         }
@@ -352,6 +426,7 @@ export const SnakeGame = () => {
         // Check player collision with AI
         if (aiSnakeRef.current.some((seg) => seg.x === newHead.x && seg.y === newHead.y)) {
           sounds.collision();
+          spawnParticles(newHead.x, newHead.y, getPlayerSkin().headColor, 20);
           endGame("💀 HIT AI SNAKE!", false);
           return;
         }
@@ -361,6 +436,7 @@ export const SnakeGame = () => {
         // Check if player ate food
         if (newHead.x === foodRef.current.x && newHead.y === foodRef.current.y) {
           sounds.eat();
+          spawnParticles(foodRef.current.x, foodRef.current.y, "#ff006e", 15);
           setScore((prev) => {
             const newScore = prev + 1;
             if (newScore >= WIN_SCORE) {
@@ -461,18 +537,21 @@ export const SnakeGame = () => {
           newAiHead.y < 0 ||
           newAiHead.y >= canvasSize.height
         ) {
+          spawnParticles(newAiHead.x, newAiHead.y, "#00f0ff", 20);
           endGame("🎉 AI HIT WALL - YOU WIN!", true);
           return;
         }
 
         // Check AI self collision
         if (aiSnakeRef.current.some((seg) => seg.x === newAiHead.x && seg.y === newAiHead.y)) {
+          spawnParticles(newAiHead.x, newAiHead.y, "#00f0ff", 20);
           endGame("🎉 AI SELF COLLISION - YOU WIN!", true);
           return;
         }
 
         // Check AI collision with player
         if (snakeRef.current.some((seg) => seg.x === newAiHead.x && seg.y === newAiHead.y)) {
+          spawnParticles(newAiHead.x, newAiHead.y, "#00f0ff", 20);
           endGame("🎉 AI HIT YOUR SNAKE - YOU WIN!", true);
           return;
         }
@@ -481,6 +560,7 @@ export const SnakeGame = () => {
 
         // Check if AI ate food
         if (newAiHead.x === foodRef.current.x && newAiHead.y === foodRef.current.y) {
+          spawnParticles(foodRef.current.x, foodRef.current.y, "#ff006e", 15);
           setAiScore((prev) => {
             const newScore = prev + 1;
             if (newScore >= WIN_SCORE) {
@@ -500,6 +580,7 @@ export const SnakeGame = () => {
           aiTrailRef.current.pop();
         }
 
+        updateParticles();
         drawGame();
       }
 
@@ -713,10 +794,17 @@ export const SnakeGame = () => {
     setShowTutorial(false);
   };
 
-  const handleUsernameSet = (name: string) => {
+  const handleUsernameSet = (name: string, skinId: string) => {
     localStorage.setItem("snakeUsername", name);
+    localStorage.setItem("snakeSkin", skinId);
     setUsername(name);
+    setSelectedSkin(skinId);
     setGameState("level");
+  };
+
+  const handleSkinChange = (skinId: string) => {
+    setSelectedSkin(skinId);
+    localStorage.setItem("snakeSkin", skinId);
   };
 
   return (
@@ -726,7 +814,11 @@ export const SnakeGame = () => {
       )}
       
       {gameState === "start" && !showTutorial && (
-        <StartScreen onStart={handleUsernameSet} />
+        <StartScreen 
+          onStart={handleUsernameSet} 
+          selectedSkin={selectedSkin}
+          onSelectSkin={handleSkinChange}
+        />
       )}
       
       {gameState === "level" && (
@@ -741,6 +833,8 @@ export const SnakeGame = () => {
             isPaused={isPaused}
             onTogglePause={handleTogglePause}
             dashReady={Date.now() > dashCooldownRef.current && snakeRef.current.length > MIN_SNAKE_LENGTH}
+            musicPlaying={musicPlaying}
+            onToggleMusic={handleToggleMusic}
           />
           <canvas
             ref={canvasRef}
