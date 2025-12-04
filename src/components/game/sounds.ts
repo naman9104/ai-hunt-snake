@@ -54,3 +54,87 @@ export const sounds = {
     setTimeout(() => playTone(660, 0.2, 'sine', 0.25), 200);
   }
 };
+
+// Background music system
+class BackgroundMusic {
+  private oscillators: OscillatorNode[] = [];
+  private gainNode: GainNode | null = null;
+  private isPlaying = false;
+  private volume = 0.15;
+
+  start() {
+    if (this.isPlaying) return;
+    this.isPlaying = true;
+
+    this.gainNode = audioContext.createGain();
+    this.gainNode.gain.setValueAtTime(this.volume, audioContext.currentTime);
+    this.gainNode.connect(audioContext.destination);
+
+    // Create ambient drone
+    const frequencies = [65.41, 98.00, 130.81]; // C2, G2, C3
+    frequencies.forEach((freq, i) => {
+      const osc = audioContext.createOscillator();
+      const oscGain = audioContext.createGain();
+      
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, audioContext.currentTime);
+      
+      // LFO for subtle movement
+      const lfo = audioContext.createOscillator();
+      const lfoGain = audioContext.createGain();
+      lfo.frequency.setValueAtTime(0.1 + i * 0.05, audioContext.currentTime);
+      lfoGain.gain.setValueAtTime(2, audioContext.currentTime);
+      lfo.connect(lfoGain);
+      lfoGain.connect(osc.frequency);
+      lfo.start();
+      
+      oscGain.gain.setValueAtTime(0.3 - i * 0.08, audioContext.currentTime);
+      osc.connect(oscGain);
+      oscGain.connect(this.gainNode!);
+      osc.start();
+      
+      this.oscillators.push(osc, lfo);
+    });
+  }
+
+  stop() {
+    if (!this.isPlaying) return;
+    this.isPlaying = false;
+    
+    this.oscillators.forEach(osc => {
+      try {
+        osc.stop();
+        osc.disconnect();
+      } catch (e) {}
+    });
+    this.oscillators = [];
+    
+    if (this.gainNode) {
+      this.gainNode.disconnect();
+      this.gainNode = null;
+    }
+  }
+
+  setVolume(vol: number) {
+    this.volume = vol;
+    if (this.gainNode) {
+      this.gainNode.gain.setValueAtTime(vol, audioContext.currentTime);
+    }
+  }
+
+  toggle(): boolean {
+    if (this.isPlaying) {
+      this.stop();
+      return false;
+    } else {
+      this.start();
+      return true;
+    }
+  }
+
+  getIsPlaying() {
+    return this.isPlaying;
+  }
+}
+
+export const backgroundMusic = new BackgroundMusic();
