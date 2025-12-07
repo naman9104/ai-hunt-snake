@@ -1,5 +1,5 @@
 import { Button } from "@/components/ui/button";
-import { Play, Pause, Zap, Volume2, VolumeX } from "lucide-react";
+import { Play, Pause, Zap, Volume2, VolumeX, Settings } from "lucide-react";
 
 interface GameHUDProps {
   score: number;
@@ -9,6 +9,7 @@ interface GameHUDProps {
   dashReady: boolean;
   musicPlaying: boolean;
   onToggleMusic: () => void;
+  onOpenSettings: () => void;
 }
 
 export const GameHUD = ({
@@ -19,6 +20,7 @@ export const GameHUD = ({
   dashReady,
   musicPlaying,
   onToggleMusic,
+  onOpenSettings,
 }: GameHUDProps) => {
   return (
     <div className="absolute top-4 left-4 right-4 z-10 flex justify-between items-start">
@@ -42,6 +44,16 @@ export const GameHUD = ({
         )}
 
         <div className="flex gap-2">
+          <Button
+            onClick={onOpenSettings}
+            size="icon"
+            variant="outline"
+            className="h-12 w-12 border-2 border-primary hover:bg-primary/20 transition-all"
+            title="Settings"
+          >
+            <Settings className="h-5 w-5 text-primary" />
+          </Button>
+          
           <Button
             onClick={onToggleMusic}
             size="icon"
@@ -67,12 +79,6 @@ export const GameHUD = ({
             <div className="text-sm font-bold text-accent">PAUSED</div>
           </div>
         )}
-
-        <div className="text-xs text-muted-foreground text-right mt-2 space-y-1">
-          <div>Arrow Keys: Move</div>
-          <div>Double Tap: Dash</div>
-          <div>Space: Pause</div>
-        </div>
       </div>
     </div>
   );

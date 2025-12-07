@@ -5,6 +5,7 @@ import { LevelScreen, DifficultyLevel } from "./game/LevelScreen";
 import { GameHUD } from "./game/GameHUD";
 import { EndScreen } from "./game/EndScreen";
 import { MobileControls } from "./game/MobileControls";
+import { SettingsModal, GraphicsLevel } from "./game/SettingsModal";
 import { GameState, Position, Direction, Particle, SNAKE_SKINS } from "./game/types";
 import { supabase } from "@/integrations/supabase/client";
 import { sounds, backgroundMusic } from "./game/sounds";
@@ -39,6 +40,20 @@ export const SnakeGame = () => {
   const [difficulty, setDifficulty] = useState<DifficultyLevel>("medium");
   const [screenShake, setScreenShake] = useState({ x: 0, y: 0, active: false });
   const isDashingRef = useRef(false);
+  
+  // Settings state
+  const [showSettings, setShowSettings] = useState(false);
+  const [volume, setVolume] = useState(() => {
+    const saved = localStorage.getItem("snakeVolume");
+    return saved ? parseFloat(saved) : 0.5;
+  });
+  const [graphicsLevel, setGraphicsLevel] = useState<GraphicsLevel>(() => {
+    return (localStorage.getItem("snakeGraphics") as GraphicsLevel) || "high";
+  });
+  const [targetFps, setTargetFps] = useState(() => {
+    const saved = localStorage.getItem("snakeFps");
+    return saved ? parseInt(saved) : 60;
+  });
 
   const snakeRef = useRef<Position[]>([
     { x: 9 * BOX_SIZE, y: 10 * BOX_SIZE },
@@ -72,6 +87,31 @@ export const SnakeGame = () => {
   const handleToggleMusic = () => {
     const isPlaying = backgroundMusic.toggle();
     setMusicPlaying(isPlaying);
+  };
+
+  const handleVolumeChange = (newVolume: number) => {
+    setVolume(newVolume);
+    localStorage.setItem("snakeVolume", newVolume.toString());
+    backgroundMusic.setVolume(newVolume);
+  };
+
+  const handleGraphicsChange = (level: GraphicsLevel) => {
+    setGraphicsLevel(level);
+    localStorage.setItem("snakeGraphics", level);
+  };
+
+  const handleFpsChange = (fps: number) => {
+    setTargetFps(fps);
+    localStorage.setItem("snakeFps", fps.toString());
+  };
+
+  const handleOpenSettings = () => {
+    setShowSettings(true);
+    setIsPaused(true);
+  };
+
+  const handleCloseSettings = () => {
+    setShowSettings(false);
   };
 
   const spawnParticles = (x: number, y: number, color: string, count: number = 12) => {
@@ -132,6 +172,11 @@ export const SnakeGame = () => {
   };
 
   // Fetch leaderboard on mount
+  // Initialize volume on mount
+  useEffect(() => {
+    backgroundMusic.setVolume(volume);
+  }, []);
+
   useEffect(() => {
     const fetchLeaderboard = async () => {
       const { data } = await supabase
@@ -308,48 +353,56 @@ export const SnakeGame = () => {
     
     const skinRgb = hexToRgb(playerSkin.headColor);
 
-    // Draw player trail
-    playerTrailRef.current.forEach((pos, index) => {
-      const alpha = (1 - index / TRAIL_LENGTH) * 0.3;
-      const size = BOX_SIZE * (1 - index / TRAIL_LENGTH) * 0.6;
-      ctx.fillStyle = `rgba(${skinRgb.r}, ${skinRgb.g}, ${skinRgb.b}, ${alpha})`;
-      ctx.beginPath();
-      ctx.arc(
-        pos.x + BOX_SIZE / 2,
-        pos.y + BOX_SIZE / 2,
-        size / 2,
-        0,
-        Math.PI * 2
-      );
-      ctx.fill();
-    });
+    // Draw player trail (only on medium/high graphics)
+    if (graphicsLevel !== "low") {
+      playerTrailRef.current.forEach((pos, index) => {
+        const alpha = (1 - index / TRAIL_LENGTH) * 0.3;
+        const size = BOX_SIZE * (1 - index / TRAIL_LENGTH) * 0.6;
+        ctx.fillStyle = `rgba(${skinRgb.r}, ${skinRgb.g}, ${skinRgb.b}, ${alpha})`;
+        ctx.beginPath();
+        ctx.arc(
+          pos.x + BOX_SIZE / 2,
+          pos.y + BOX_SIZE / 2,
+          size / 2,
+          0,
+          Math.PI * 2
+        );
+        ctx.fill();
+      });
 
-    // Draw AI trail
-    aiTrailRef.current.forEach((pos, index) => {
-      const alpha = (1 - index / TRAIL_LENGTH) * 0.3;
-      const size = BOX_SIZE * (1 - index / TRAIL_LENGTH) * 0.6;
-      ctx.fillStyle = `rgba(0, 240, 255, ${alpha})`;
-      ctx.beginPath();
-      ctx.arc(
-        pos.x + BOX_SIZE / 2,
-        pos.y + BOX_SIZE / 2,
-        size / 2,
-        0,
-        Math.PI * 2
-      );
-      ctx.fill();
-    });
+      // Draw AI trail
+      aiTrailRef.current.forEach((pos, index) => {
+        const alpha = (1 - index / TRAIL_LENGTH) * 0.3;
+        const size = BOX_SIZE * (1 - index / TRAIL_LENGTH) * 0.6;
+        ctx.fillStyle = `rgba(0, 240, 255, ${alpha})`;
+        ctx.beginPath();
+        ctx.arc(
+          pos.x + BOX_SIZE / 2,
+          pos.y + BOX_SIZE / 2,
+          size / 2,
+          0,
+          Math.PI * 2
+        );
+        ctx.fill();
+      });
+    }
 
-    // Draw particles
-    particlesRef.current.forEach((p) => {
-      const alpha = p.life / p.maxLife;
-      ctx.globalAlpha = alpha;
-      ctx.fillStyle = p.color;
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, p.size * alpha, 0, Math.PI * 2);
-      ctx.fill();
-    });
-    ctx.globalAlpha = 1;
+    // Draw particles (only on high graphics, reduced on medium)
+    if (graphicsLevel !== "low") {
+      const particlesToDraw = graphicsLevel === "high" 
+        ? particlesRef.current 
+        : particlesRef.current.filter((_, i) => i % 2 === 0);
+      
+      particlesToDraw.forEach((p) => {
+        const alpha = p.life / p.maxLife;
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = p.color;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size * alpha, 0, Math.PI * 2);
+        ctx.fill();
+      });
+      ctx.globalAlpha = 1;
+    }
 
     // Draw food with pulsing effect
     const pulse = Math.sin(Date.now() / 200) * 3 + 3;
@@ -649,15 +702,23 @@ export const SnakeGame = () => {
       let newDir: Direction | null = null;
       switch (e.key) {
         case "ArrowLeft":
+        case "a":
+        case "A":
           newDir = "LEFT";
           break;
         case "ArrowRight":
+        case "d":
+        case "D":
           newDir = "RIGHT";
           break;
         case "ArrowUp":
+        case "w":
+        case "W":
           newDir = "UP";
           break;
         case "ArrowDown":
+        case "s":
+        case "S":
           newDir = "DOWN";
           break;
       }
@@ -913,6 +974,17 @@ export const SnakeGame = () => {
             dashReady={Date.now() > dashCooldownRef.current && snakeRef.current.length > MIN_SNAKE_LENGTH}
             musicPlaying={musicPlaying}
             onToggleMusic={handleToggleMusic}
+            onOpenSettings={handleOpenSettings}
+          />
+          <SettingsModal
+            isOpen={showSettings}
+            onClose={handleCloseSettings}
+            volume={volume}
+            onVolumeChange={handleVolumeChange}
+            graphicsLevel={graphicsLevel}
+            onGraphicsChange={handleGraphicsChange}
+            targetFps={targetFps}
+            onFpsChange={handleFpsChange}
           />
           <canvas
             ref={canvasRef}
