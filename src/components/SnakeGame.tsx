@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { StartScreen } from "./game/StartScreen";
 import { TutorialScreen } from "./game/TutorialScreen";
-import { LevelScreen } from "./game/LevelScreen";
+import { LevelScreen, DifficultyLevel } from "./game/LevelScreen";
 import { GameHUD } from "./game/GameHUD";
 import { EndScreen } from "./game/EndScreen";
 import { MobileControls } from "./game/MobileControls";
@@ -14,6 +14,8 @@ const WIN_SCORE = 10;
 const DASH_SPEED = 2;
 const DASH_COOLDOWN = 1000;
 const MIN_SNAKE_LENGTH = 3;
+const SHAKE_DURATION = 300;
+const SHAKE_INTENSITY = 8;
 
 export const SnakeGame = () => {
   const [gameState, setGameState] = useState<GameState>("start");
@@ -34,6 +36,9 @@ export const SnakeGame = () => {
   const [selectedSkin, setSelectedSkin] = useState(() => {
     return localStorage.getItem("snakeSkin") || "neon-green";
   });
+  const [difficulty, setDifficulty] = useState<DifficultyLevel>("medium");
+  const [screenShake, setScreenShake] = useState({ x: 0, y: 0, active: false });
+  const isDashingRef = useRef(false);
 
   const snakeRef = useRef<Position[]>([
     { x: 9 * BOX_SIZE, y: 10 * BOX_SIZE },
@@ -97,6 +102,31 @@ export const SnakeGame = () => {
     });
   };
 
+  const triggerScreenShake = () => {
+    setScreenShake({ x: 0, y: 0, active: true });
+    const shakeStart = Date.now();
+    
+    const shake = () => {
+      const elapsed = Date.now() - shakeStart;
+      if (elapsed < SHAKE_DURATION) {
+        const intensity = SHAKE_INTENSITY * (1 - elapsed / SHAKE_DURATION);
+        setScreenShake({
+          x: (Math.random() - 0.5) * 2 * intensity,
+          y: (Math.random() - 0.5) * 2 * intensity,
+          active: true,
+        });
+        requestAnimationFrame(shake);
+      } else {
+        setScreenShake({ x: 0, y: 0, active: false });
+      }
+    };
+    shake();
+  };
+
+  const canPhaseThrough = () => {
+    return isDashingRef.current && (difficulty === "easy" || difficulty === "medium");
+  };
+
   const getPlayerSkin = () => {
     return SNAKE_SKINS.find((s) => s.id === selectedSkin) || SNAKE_SKINS[0];
   };
@@ -116,8 +146,9 @@ export const SnakeGame = () => {
     fetchLeaderboard();
   }, []);
 
-  const handleStartGame = (selectedSpeed: number) => {
+  const handleStartGame = (selectedSpeed: number, selectedDifficulty: DifficultyLevel) => {
     setSpeed(selectedSpeed);
+    setDifficulty(selectedDifficulty);
     setGameState("playing");
     setScore(0);
     setAiScore(0);
@@ -410,6 +441,7 @@ export const SnakeGame = () => {
           newHead.y >= canvasSize.height
         ) {
           sounds.collision();
+          triggerScreenShake();
           spawnParticles(newHead.x, newHead.y, getPlayerSkin().headColor, 20);
           endGame("💀 WALL COLLISION!", false);
           return;
@@ -418,14 +450,17 @@ export const SnakeGame = () => {
         // Check player self collision
         if (snakeRef.current.some((seg) => seg.x === newHead.x && seg.y === newHead.y)) {
           sounds.collision();
+          triggerScreenShake();
           spawnParticles(newHead.x, newHead.y, getPlayerSkin().headColor, 20);
           endGame("💀 SELF COLLISION!", false);
           return;
         }
 
-        // Check player collision with AI
-        if (aiSnakeRef.current.some((seg) => seg.x === newHead.x && seg.y === newHead.y)) {
+        // Check player collision with AI (phase through if dashing in easy/medium)
+        const hitAi = aiSnakeRef.current.some((seg) => seg.x === newHead.x && seg.y === newHead.y);
+        if (hitAi && !canPhaseThrough()) {
           sounds.collision();
+          triggerScreenShake();
           spawnParticles(newHead.x, newHead.y, getPlayerSkin().headColor, 20);
           endGame("💀 HIT AI SNAKE!", false);
           return;
@@ -537,6 +572,7 @@ export const SnakeGame = () => {
           newAiHead.y < 0 ||
           newAiHead.y >= canvasSize.height
         ) {
+          triggerScreenShake();
           spawnParticles(newAiHead.x, newAiHead.y, "#00f0ff", 20);
           endGame("🎉 AI HIT WALL - YOU WIN!", true);
           return;
@@ -544,6 +580,7 @@ export const SnakeGame = () => {
 
         // Check AI self collision
         if (aiSnakeRef.current.some((seg) => seg.x === newAiHead.x && seg.y === newAiHead.y)) {
+          triggerScreenShake();
           spawnParticles(newAiHead.x, newAiHead.y, "#00f0ff", 20);
           endGame("🎉 AI SELF COLLISION - YOU WIN!", true);
           return;
@@ -551,6 +588,7 @@ export const SnakeGame = () => {
 
         // Check AI collision with player
         if (snakeRef.current.some((seg) => seg.x === newAiHead.x && seg.y === newAiHead.y)) {
+          triggerScreenShake();
           spawnParticles(newAiHead.x, newAiHead.y, "#00f0ff", 20);
           endGame("🎉 AI HIT YOUR SNAKE - YOU WIN!", true);
           return;
@@ -638,6 +676,7 @@ export const SnakeGame = () => {
         ) {
           // Execute dash - only remove segments if snake is long enough
           sounds.dash();
+          isDashingRef.current = true;
           const head = snakeRef.current[0];
           let dashHead = { ...head };
           
@@ -658,6 +697,20 @@ export const SnakeGame = () => {
             }
           }
           
+          // Check if dash position has food - collect it
+          if (dashHead.x === foodRef.current.x && dashHead.y === foodRef.current.y) {
+            sounds.eat();
+            spawnParticles(foodRef.current.x, foodRef.current.y, "#ff006e", 15);
+            setScore((prev) => {
+              const newScore = prev + 1;
+              if (newScore >= WIN_SCORE) {
+                endGame("🎉 YOU WIN!", true);
+              }
+              return newScore;
+            });
+            spawnFood();
+          }
+          
           // Keep minimum snake length
           const segmentsToRemove = Math.min(DASH_SPEED, snakeRef.current.length - MIN_SNAKE_LENGTH);
           if (segmentsToRemove > 0) {
@@ -668,6 +721,11 @@ export const SnakeGame = () => {
           
           dashCooldownRef.current = now + DASH_COOLDOWN;
           lastKeyPressRef.current = null;
+          
+          // Reset dashing flag after a short delay
+          setTimeout(() => {
+            isDashingRef.current = false;
+          }, 100);
         } else {
           lastKeyPressRef.current = { key: e.key, time: now };
           dirRef.current = newDir;
@@ -757,6 +815,7 @@ export const SnakeGame = () => {
     
     if (now > dashCooldownRef.current) {
       sounds.dash();
+      isDashingRef.current = true;
       const head = snakeRef.current[0];
       let dashHead = { ...head };
       
@@ -777,6 +836,20 @@ export const SnakeGame = () => {
         }
       }
       
+      // Check if dash position has food - collect it
+      if (dashHead.x === foodRef.current.x && dashHead.y === foodRef.current.y) {
+        sounds.eat();
+        spawnParticles(foodRef.current.x, foodRef.current.y, "#ff006e", 15);
+        setScore((prev) => {
+          const newScore = prev + 1;
+          if (newScore >= WIN_SCORE) {
+            endGame("🎉 YOU WIN!", true);
+          }
+          return newScore;
+        });
+        spawnFood();
+      }
+      
       // Keep minimum snake length
       const segmentsToRemove = Math.min(DASH_SPEED, snakeRef.current.length - MIN_SNAKE_LENGTH);
       if (segmentsToRemove > 0) {
@@ -786,6 +859,11 @@ export const SnakeGame = () => {
       }
       
       dashCooldownRef.current = now + DASH_COOLDOWN;
+      
+      // Reset dashing flag after a short delay
+      setTimeout(() => {
+        isDashingRef.current = false;
+      }, 100);
     }
   };
 
@@ -838,7 +916,12 @@ export const SnakeGame = () => {
           />
           <canvas
             ref={canvasRef}
-            className="absolute inset-0 w-full h-full"
+            className="absolute inset-0 w-full h-full transition-transform"
+            style={{
+              transform: screenShake.active 
+                ? `translate(${screenShake.x}px, ${screenShake.y}px)` 
+                : 'none'
+            }}
             width={canvasSize.width}
             height={canvasSize.height}
           />
