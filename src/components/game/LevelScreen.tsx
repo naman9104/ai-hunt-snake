@@ -1,14 +1,16 @@
 import { Button } from "@/components/ui/button";
 
+export type DifficultyLevel = "easy" | "medium" | "hard" | "impossible";
+
 interface LevelScreenProps {
-  onSelectLevel: (speed: number) => void;
+  onSelectLevel: (speed: number, difficulty: DifficultyLevel) => void;
 }
 
-const levels = [
-  { name: "EASY", speed: 150, color: "primary", description: "Relaxed pace" },
-  { name: "MEDIUM", speed: 120, color: "secondary", description: "Balanced challenge" },
-  { name: "HARD", speed: 90, color: "accent", description: "Fast reflexes needed" },
-  { name: "IMPOSSIBLE", speed: 60, color: "destructive", description: "Are you ready?" },
+const levels: { name: string; speed: number; color: string; description: string; difficulty: DifficultyLevel }[] = [
+  { name: "EASY", speed: 150, color: "primary", description: "Relaxed pace", difficulty: "easy" },
+  { name: "MEDIUM", speed: 120, color: "secondary", description: "Balanced challenge", difficulty: "medium" },
+  { name: "HARD", speed: 90, color: "accent", description: "Fast reflexes needed", difficulty: "hard" },
+  { name: "IMPOSSIBLE", speed: 60, color: "destructive", description: "Are you ready?", difficulty: "impossible" },
 ];
 
 export const LevelScreen = ({ onSelectLevel }: LevelScreenProps) => {
@@ -23,7 +25,7 @@ export const LevelScreen = ({ onSelectLevel }: LevelScreenProps) => {
           {levels.map((level) => (
             <Button
               key={level.name}
-              onClick={() => onSelectLevel(level.speed)}
+              onClick={() => onSelectLevel(level.speed, level.difficulty)}
               variant="outline"
               className={`h-32 text-2xl font-bold border-2 transition-all duration-300 hover:scale-105 ${
                 level.color === "primary"
